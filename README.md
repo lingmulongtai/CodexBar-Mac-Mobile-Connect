@@ -14,6 +14,10 @@ AIサービスの使用量・リセット時刻・履歴を確認するMac版で
 
 [共通のGitHub Project](https://github.com/users/lingmulongtai/projects/3)
 
+## 接続
+
+Windows・Mac同士は **Settings → Mobile Connect → Receive from another PC** から接続します。送信と受信は独立しており、スマホ・タブレットも同じ送信元へ接続できます。[接続手順と対応範囲](docs/CONNECTING.md)
+
 ## Macでビルド
 
 macOS 14以降、Xcode Command Line Tools、Rust、Node.jsと、共通ソースの`package.json`で指定したpnpmが必要です。
