@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -47,6 +48,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop -> target
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: desktop/apps/desktop-tauri/package.json
@@ -63,19 +65,27 @@ jobs:
           bash -n scripts/build-macos.sh
           git submodule status
           git -C desktop diff --exit-code
-      - name: Rust formatting, lint and tests
+      - name: Rust formatting and lint
         run: |
           set -euo pipefail
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo test --locked --workspace
+      - name: Verify native Keychain persistence and concurrent first use
+        working-directory: .
+        run: bash scripts/check-keychain.sh
+      - name: Compile Rust test binaries
+        timeout-minutes: 20
+        run: cargo test --locked --workspace --no-run
+      - name: Rust tests
+        timeout-minutes: 10
+        run: cargo test --locked --workspace
       - name: Frontend validation
         working-directory: desktop/apps/desktop-tauri
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
           pnpm run lint
-          pnpm exec vitest run --maxWorkers=2
+          pnpm exec vitest run --maxWorkers=2 --silent
           pnpm run build
       - name: Build native application and DMG
         working-directory: .
@@ -86,16 +96,32 @@ jobs:
           app='target/${{ matrix.target }}/release/bundle/macos/CodexBar + Mobile Connect.app'
           test -d "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist")"
           binary="$app/Contents/MacOS/codexbar-desktop-tauri"
           test -x "$binary"
           file "$binary"
           case '${{ matrix.arch }}' in
-            apple-silicon) lipo -verify_arch arm64 "$binary" ;;
-            intel) lipo -verify_arch x86_64 "$binary" ;;
+            apple-silicon) lipo "$binary" -verify_arch arm64 ;;
+            intel) lipo "$binary" -verify_arch x86_64 ;;
           esac
+      - name: Launch the bundled native application and capture its UI
+        working-directory: .
+        run: bash scripts/smoke-macos.sh '${{ matrix.target }}'
+      - name: Verify DMG contents and prepare immutable release assets
+        working-directory: .
+        run: bash scripts/package-macos.sh '${{ matrix.target }}'
       - uses: actions/upload-artifact@v4
         with:
+          name: Mac-release-${{ matrix.arch }}-${{ github.sha }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: CodexBar-Mac-Mobile-Connect-${{ matrix.arch }}-${{ github.sha }}
-          path: desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          path: |
+            desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            artifacts/${{ matrix.target }}/
           if-no-files-found: error
           retention-days: 14

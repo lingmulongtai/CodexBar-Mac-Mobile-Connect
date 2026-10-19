@@ -1,0 +1,86 @@
+name: Verified Mac release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: github.repository == 'lingmulongtai/CodexBar-Mac-Mobile-Connect'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify immutable owned release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "$(node -p 'require("./desktop/apps/desktop-tauri/package.json").version')" = "${GITHUB_REF_NAME#v}"
+          git -C desktop diff --exit-code
+          test -f "docs/releases/$GITHUB_REF_NAME.md"
+  build:
+    needs: source
+    uses: ./.github/workflows/macos.yml
+  publish:
+    needs: [source, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Mac-release-*-${{ github.sha }}
+          path: verified
+          merge-multiple: true
+      - name: Verify provenance and publish both architectures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo='lingmulongtai/CodexBar-Mac-Mobile-Connect'
+          test "$(gh repo view "$repo" --json nameWithOwner --jq .nameWithOwner)" = "$repo"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          version="${GITHUB_REF_NAME#v}"
+          source="$(git -C desktop rev-parse HEAD)"
+          mkdir release-assets
+          for arch in arm64 x86_64; do
+            (cd "verified/$arch" && sha256sum --check "SHA256SUMS-$arch")
+            name="CodexBar-Mobile-Connect-$version-macOS-$arch"
+            target="$arch-apple-darwin"
+            if [ "$arch" = arm64 ]; then target=aarch64-apple-darwin; fi
+            jq -e --arg repo "$repo" --arg version "$version" --arg commit "$GITHUB_SHA" --arg source "$source" --arg target "$target" \
+              '.repository == $repo and .version == $version and .commit == $commit and .sourceCommit == $source and .target == $target and .signing == "ad-hoc" and .developerIdSigned == false and .notarized == false' \
+              "verified/$arch/$name-build.json"
+            actual="$(sha256sum "verified/$arch/$name.dmg" | cut -d ' ' -f1)"
+            test "$(jq -r .sha256 "verified/$arch/$name-build.json")" = "$actual"
+            cp "verified/$arch/$name.dmg" "verified/$arch/$name-build.json" "verified/$arch/$name-ui.png" release-assets/
+          done
+          cp LICENSE release-assets/LICENSE.txt
+          (cd release-assets && sha256sum ./* > SHA256SUMS && sha256sum --check SHA256SUMS)
+          actual="$(git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" | cut -f1)"
+          if [ -z "$actual" ]; then actual="$(git ls-remote origin "refs/tags/$GITHUB_REF_NAME" | cut -f1)"; fi
+          test "$actual" = "$GITHUB_SHA"
+          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$repo" --verify-tag --target "$GITHUB_SHA" --latest \
+            --title "CodexBar + Mobile Connect for Mac $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$repo" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease]|all(. == false)')" = true

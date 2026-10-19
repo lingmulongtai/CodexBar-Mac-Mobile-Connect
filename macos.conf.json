@@ -25,9 +25,11 @@
   },
   "bundle": {
     "targets": ["app", "dmg"],
+    "icon": ["../../../../icons/codexbar.icns", "../../../rust/icons/icon.png"],
     "macOS": {
       "minimumSystemVersion": "14.0",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "infoPlist": "../../../../macos-Info.plist"
     }
   }
 }
