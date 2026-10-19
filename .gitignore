@@ -1,0 +1,7 @@
+.DS_Store
+.codex/
+.codex-remote-attachments/
+.env
+.env.*
+artifacts/
+target/

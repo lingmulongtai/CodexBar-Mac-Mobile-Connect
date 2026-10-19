@@ -1,0 +1,101 @@
+name: Native Mac checks and app bundles
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    if: github.repository == 'lingmulongtai/CodexBar-Mac-Mobile-Connect'
+    name: Mac ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            arch: apple-silicon
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: intel
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: desktop/apps/desktop-tauri/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+          cache-dependency-path: desktop/apps/desktop-tauri/pnpm-lock.yaml
+      - name: Check pinned source and native platform
+        working-directory: .
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          bash -n scripts/build-macos.sh
+          git submodule status
+          git -C desktop diff --exit-code
+      - name: Rust formatting, lint and tests
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+      - name: Frontend validation
+        working-directory: desktop/apps/desktop-tauri
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm exec vitest run --maxWorkers=2
+          pnpm run build
+      - name: Build native application and DMG
+        working-directory: .
+        run: bash scripts/build-macos.sh '${{ matrix.target }}'
+      - name: Verify application signature and architecture
+        run: |
+          set -euo pipefail
+          app='target/${{ matrix.target }}/release/bundle/macos/CodexBar + Mobile Connect.app'
+          test -d "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          binary="$app/Contents/MacOS/codexbar-desktop-tauri"
+          test -x "$binary"
+          file "$binary"
+          case '${{ matrix.arch }}' in
+            apple-silicon) lipo -verify_arch arm64 "$binary" ;;
+            intel) lipo -verify_arch x86_64 "$binary" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CodexBar-Mac-Mobile-Connect-${{ matrix.arch }}-${{ github.sha }}
+          path: desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
