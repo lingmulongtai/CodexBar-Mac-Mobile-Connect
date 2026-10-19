@@ -101,8 +101,8 @@ jobs:
           test -x "$binary"
           file "$binary"
           case '${{ matrix.arch }}' in
-            apple-silicon) lipo -verify_arch arm64 "$binary" ;;
-            intel) lipo -verify_arch x86_64 "$binary" ;;
+            apple-silicon) lipo "$binary" -verify_arch arm64 ;;
+            intel) lipo "$binary" -verify_arch x86_64 ;;
           esac
       - name: Launch the bundled native application and capture its UI
         working-directory: .

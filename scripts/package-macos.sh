@@ -15,7 +15,7 @@ version="$(node -p "require('$root/desktop/apps/desktop-tauri/package.json').ver
 app="$root/desktop/target/$target/release/bundle/macos/CodexBar + Mobile Connect.app"
 source_binary="$app/Contents/MacOS/codexbar-desktop-tauri"
 codesign --verify --deep --strict "$app"
-lipo -verify_arch "$arch" "$source_binary"
+lipo "$source_binary" -verify_arch "$arch"
 shopt -s nullglob
 dmgs=("$root/desktop/target/$target/release/bundle/dmg/"*.dmg)
 ((${#dmgs[@]} == 1))
