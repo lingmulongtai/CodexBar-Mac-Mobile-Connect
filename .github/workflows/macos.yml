@@ -47,6 +47,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop -> target
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: desktop/apps/desktop-tauri/package.json
@@ -63,19 +64,23 @@ jobs:
           bash -n scripts/build-macos.sh
           git submodule status
           git -C desktop diff --exit-code
-      - name: Rust formatting, lint and tests
+      - name: Rust formatting and lint
         run: |
           set -euo pipefail
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo test --locked --workspace
+      - name: Verify native Keychain persistence and concurrent first use
+        working-directory: .
+        run: bash scripts/check-keychain.sh
+      - name: Rust tests
+        run: cargo test --locked --workspace
       - name: Frontend validation
         working-directory: desktop/apps/desktop-tauri
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
           pnpm run lint
-          pnpm exec vitest run --maxWorkers=2
+          pnpm exec vitest run --maxWorkers=2 --silent
           pnpm run build
       - name: Build native application and DMG
         working-directory: .
@@ -93,9 +98,15 @@ jobs:
             apple-silicon) lipo -verify_arch arm64 "$binary" ;;
             intel) lipo -verify_arch x86_64 "$binary" ;;
           esac
+      - name: Launch the bundled native application and capture its UI
+        working-directory: .
+        run: bash scripts/smoke-macos.sh '${{ matrix.target }}'
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: CodexBar-Mac-Mobile-Connect-${{ matrix.arch }}-${{ github.sha }}
-          path: desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          path: |
+            desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            artifacts/${{ matrix.target }}/
           if-no-files-found: error
           retention-days: 14
