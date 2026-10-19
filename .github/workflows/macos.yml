@@ -96,6 +96,7 @@ jobs:
           app='target/${{ matrix.target }}/release/bundle/macos/CodexBar + Mobile Connect.app'
           test -d "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist")"
           binary="$app/Contents/MacOS/codexbar-desktop-tauri"
           test -x "$binary"
           file "$binary"
