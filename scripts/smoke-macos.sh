@@ -32,9 +32,10 @@ let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopEl
 let owned = windows.filter { window in
     guard window[kCGWindowOwnerPID as String] as? Int == pid,
           window[kCGWindowLayer as String] as? Int == 0,
-          let bounds = window[kCGWindowBounds as String] as? NSDictionary,
-          let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
-    return rect.width >= 320 && rect.height >= 240
+          let bounds = window[kCGWindowBounds as String] as? [String: Any],
+          let width = bounds["Width"] as? NSNumber,
+          let height = bounds["Height"] as? NSNumber else { return false }
+    return width.doubleValue >= 320 && height.doubleValue >= 240
 }
 guard owned.count == 1, let id = owned.first?[kCGWindowNumber as String] as? Int else {
     fputs("Expected exactly one visible app surface\n", stderr)
