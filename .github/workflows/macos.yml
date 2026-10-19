@@ -73,7 +73,11 @@ jobs:
       - name: Verify native Keychain persistence and concurrent first use
         working-directory: .
         run: bash scripts/check-keychain.sh
+      - name: Compile Rust test binaries
+        timeout-minutes: 20
+        run: cargo test --locked --workspace --no-run
       - name: Rust tests
+        timeout-minutes: 10
         run: cargo test --locked --workspace
       - name: Frontend validation
         working-directory: desktop/apps/desktop-tauri
