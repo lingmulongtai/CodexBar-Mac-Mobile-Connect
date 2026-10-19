@@ -24,7 +24,27 @@ grep -q 'proof-harness: transition succeeded' "$output/native-app.log"
 # Let the actual bundled WebKit surface finish rendering before capture.
 sleep 3
 kill -0 "$pid"
-screencapture -x "$output/mobile-connect.png"
+window_id="$(swift - "$pid" <<'SWIFT'
+import Foundation
+import CoreGraphics
+let pid = Int(CommandLine.arguments[1])!
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+let owned = windows.filter { window in
+    guard window[kCGWindowOwnerPID as String] as? Int == pid,
+          window[kCGWindowLayer as String] as? Int == 0,
+          let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+          let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+    return rect.width >= 320 && rect.height >= 240
+}
+guard owned.count == 1, let id = owned.first?[kCGWindowNumber as String] as? Int else {
+    fputs("Expected exactly one visible app surface\n", stderr)
+    exit(1)
+}
+print(id)
+SWIFT
+)"
+[[ "$window_id" =~ ^[0-9]+$ ]]
+screencapture -x -l "$window_id" "$output/mobile-connect.png"
 test -s "$output/mobile-connect.png"
 if grep -Eq 'panicked at|segmentation fault|proof-harness:.*FAILED' "$output/native-app.log"; then exit 1; fi
 shasum -a 256 "$binary" > "$output/native-app.sha256"

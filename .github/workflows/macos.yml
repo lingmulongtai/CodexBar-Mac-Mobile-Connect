@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -101,6 +102,15 @@ jobs:
       - name: Launch the bundled native application and capture its UI
         working-directory: .
         run: bash scripts/smoke-macos.sh '${{ matrix.target }}'
+      - name: Verify DMG contents and prepare immutable release assets
+        working-directory: .
+        run: bash scripts/package-macos.sh '${{ matrix.target }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mac-release-${{ matrix.arch }}-${{ github.sha }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
